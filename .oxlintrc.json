@@ -1,0 +1,7 @@
+{
+  "ignorePatterns": [
+    ".wrangler/**",
+    "packages/contract/dist/**",
+    "artifacts/**"
+  ]
+}

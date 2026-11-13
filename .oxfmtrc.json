@@ -1,0 +1,8 @@
+{
+  "printWidth": 80,
+  "ignorePatterns": [
+    ".wrangler/**",
+    "packages/contract/dist/**",
+    "artifacts/**"
+  ]
+}
