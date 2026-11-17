@@ -40,7 +40,7 @@
         {
           "binding": "DB",
           "database_name": "astrology-engine-cms-staging",
-          "database_id": "REPLACE_WITH_STAGING_DATABASE_ID",
+          "database_id": "e3aa4fd2-9aeb-4423-b24b-4fe0b281b4ec",
           "migrations_dir": "migrations",
         },
       ],
@@ -57,7 +57,7 @@
         {
           "binding": "DB",
           "database_name": "astrology-engine-cms-alpha",
-          "database_id": "REPLACE_WITH_ALPHA_DATABASE_ID",
+          "database_id": "e55d2c4e-f2c6-47ad-a46c-bdf9a968289d",
           "migrations_dir": "migrations",
         },
       ],

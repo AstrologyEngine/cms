@@ -1,7 +1,6 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../app";
-import type { Catalog } from "../catalog-schema";
 import {
   allTranslations,
   entryTranslations,
@@ -10,14 +9,15 @@ import {
   type TranslationRecord,
 } from "../db";
 import { coverageReport } from "../coverage";
-import { isCatalogEntry, validateFields } from "../fields";
-import { apiError } from "../http";
+import { validateFields } from "../fields";
+import { apiError, parse } from "../http";
 import {
   canonicalLocale,
   defaultFallbackFor,
   effectiveChain,
   wouldCycle,
 } from "../locales";
+import { findKey, loadRegistry, type Registry } from "../registry";
 import { actorOf, commitWrite, now, readJson } from "../write";
 
 const localeCode = z.string().transform((value, ctx) => {
@@ -51,18 +51,6 @@ const updateLocale = z
   .refine((value) => Object.keys(value).length > 0, {
     message: "Provide at least one field",
   });
-
-const parse = <T>(schema: z.ZodType<T>, value: unknown): T => {
-  const parsed = schema.safeParse(value);
-  if (!parsed.success)
-    throw apiError(422, "validation_failed", "Request is invalid.", {
-      issues: parsed.error.issues.map(({ path, message }) => ({
-        path: path.join("."),
-        message,
-      })),
-    });
-  return parsed.data;
-};
 
 const invalid = (message: string): never => {
   throw apiError(422, "validation_failed", message);
@@ -143,7 +131,17 @@ const presentTranslation = (row: TranslationRecord) => ({
   updatedAt: row.updated_at,
 });
 
-export const adminRoutes = (catalog: Catalog) => {
+/** Translations of deleted keys are frozen until the key is restored. */
+const refuseDeleted = (registry: Registry, collection: string, key: string) => {
+  if (findKey(registry, collection, key)?.status === "deleted")
+    throw apiError(
+      409,
+      "conflict",
+      `'${collection}:${key}' is deleted; restore it before editing.`,
+    );
+};
+
+export const adminRoutes = () => {
   const routes = new Hono<AppEnv>();
 
   routes.get("/v1/admin/locales", async (c) => {
@@ -298,14 +296,13 @@ export const adminRoutes = (catalog: Catalog) => {
     return c.body(null, 204);
   });
 
-  routes.get("/v1/admin/catalog", (c) => c.json({ collections: catalog }));
-
   routes.get("/v1/admin/coverage", async (c) => {
-    const [locales, rows] = await Promise.all([
+    const [registry, locales, rows] = await Promise.all([
+      loadRegistry(c.env.DB),
       listLocales(c.env.DB),
       allTranslations(c.env.DB),
     ]);
-    return c.json(coverageReport(catalog, locales, rows));
+    return c.json(coverageReport(registry, locales, rows));
   });
 
   routes.get("/v1/admin/revisions", async (c) => {
@@ -347,21 +344,23 @@ export const adminRoutes = (catalog: Catalog) => {
 
   routes.get("/v1/admin/entries/:collection/:key", async (c) => {
     const { collection, key } = c.req.param();
-    const inCatalog = isCatalogEntry(catalog, collection, key);
-    const rows = await entryTranslations(c.env.DB, collection, key);
-    if (!inCatalog && !rows.length)
+    const [registry, rows] = await Promise.all([
+      loadRegistry(c.env.DB),
+      entryTranslations(c.env.DB, collection, key),
+    ]);
+    const definition = findKey(registry, collection, key);
+    if (!definition)
       throw apiError(
         404,
         "unknown_entry",
-        `'${collection}:${key}' is not in the catalog.`,
+        `'${collection}:${key}' is not registered.`,
       );
-    const definition = inCatalog ? catalog[collection]! : null;
     return c.json({
       collection,
       key,
-      inCatalog,
-      shape: definition?.shape ?? null,
-      placeholders: definition ? [...definition.keys[key]!] : [],
+      status: definition.status,
+      shape: registry[collection]!.shape,
+      placeholders: [...definition.placeholders],
       translations: rows.map(presentTranslation),
     });
   });
@@ -375,8 +374,10 @@ export const adminRoutes = (catalog: Catalog) => {
         await listLocales(c.env.DB),
         c.req.param("locale"),
       );
+      const registry = await loadRegistry(c.env.DB);
+      refuseDeleted(registry, collection, key);
       const validated = validateFields(
-        catalog,
+        registry,
         collection,
         key,
         await readJson(c),
@@ -404,7 +405,7 @@ export const adminRoutes = (catalog: Catalog) => {
         match !== null
           ? db
               .prepare(
-                `UPDATE translations SET fields = ?, revision = revision + 1, updated_at = ?
+                `UPDATE translations SET fields = ?, revision = revision + 1, origin = 'editor', updated_at = ?
                  ${where}${match === "any" ? "" : " AND revision = ?"} RETURNING revision`,
               )
               .bind(
@@ -417,12 +418,12 @@ export const adminRoutes = (catalog: Catalog) => {
               )
           : db
               .prepare(
-                `INSERT INTO translations (collection, key, locale, fields, revision, updated_at)
-                 VALUES (?, ?, ?, ?, 1, ?)
+                `INSERT INTO translations (collection, key, locale, fields, revision, origin, updated_at)
+                 VALUES (?, ?, ?, ?, 1, 'editor', ?)
                  ON CONFLICT (collection, key, locale) DO ${
                    createOnly
                      ? "NOTHING"
-                     : "UPDATE SET fields = excluded.fields, revision = translations.revision + 1, updated_at = excluded.updated_at"
+                     : "UPDATE SET fields = excluded.fields, revision = translations.revision + 1, origin = 'editor', updated_at = excluded.updated_at"
                  }
                  RETURNING revision`,
               )
@@ -474,11 +475,12 @@ export const adminRoutes = (catalog: Catalog) => {
         : [];
       if (!locale || !existing)
         throw apiError(404, "not_found", "Translation does not exist.");
-      if (locale.isDefault && isCatalogEntry(catalog, collection, key))
+      refuseDeleted(await loadRegistry(c.env.DB), collection, key);
+      if (locale.isDefault)
         throw apiError(
           409,
           "conflict",
-          "Catalog entries keep their default-locale text; edit it instead.",
+          "Keys keep their default-locale text; edit it instead.",
         );
       const match = ifMatch(c.req.header("if-match"));
       if (match === "never") preconditionFailed();

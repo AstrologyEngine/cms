@@ -3,6 +3,7 @@ import {
   addLocale,
   addTranslation,
   call,
+  registerKeys,
   resetDb,
   setVersion,
 } from "./helpers";
@@ -65,16 +66,30 @@ describe("GET /v1/content/:locale", () => {
     expect(body.locale).toBe("es-419");
   });
 
-  it("excludes orphaned translations", async () => {
+  it("serves unused keys and omits deleted ones", async () => {
+    await registerKeys({
+      body: {
+        shape: "named",
+        keys: { VULCAN: { placeholders: [], status: "deleted" } },
+      },
+      ghost: {
+        shape: "text",
+        keys: { "only.deleted": { placeholders: [], status: "deleted" } },
+      },
+    });
+    // addTranslation registers unknown keys as unused.
     await addTranslation("body", "PLUTO", "en", { ...sun, name: "Pluto" });
     await addTranslation("planet", "SUN", "en", sun);
+    await addTranslation("body", "VULCAN", "en", { ...sun, name: "Vulcan" });
+    await addTranslation("ghost", "only.deleted", "en", title);
     const body = await (
       await call("/v1/content/en")
     ).json<{
       entries: Record<string, Record<string, unknown>>;
     }>();
-    expect(body.entries.body).toEqual({});
-    expect(body.entries).not.toHaveProperty("planet");
+    expect(body.entries.body).toEqual({ PLUTO: { ...sun, name: "Pluto" } });
+    expect(body.entries.planet).toEqual({ SUN: sun });
+    expect(body.entries).not.toHaveProperty("ghost");
   });
 
   it.each([
@@ -134,6 +149,27 @@ describe("GET /v1/content/:locale/:collection/:key", () => {
     const response = await call("/v1/content/en/body/PLUTO");
     expect(response.status).toBe(404);
     expect(await response.json()).toMatchObject({
+      error: { code: "unknown_entry" },
+    });
+  });
+
+  it("serves unused keys and answers 404 unknown_entry for deleted ones", async () => {
+    await registerKeys({
+      body: {
+        shape: "named",
+        keys: { VULCAN: { placeholders: [], status: "deleted" } },
+      },
+    });
+    await addTranslation("body", "PLUTO", "en", { ...sun, name: "Pluto" });
+    await addTranslation("body", "VULCAN", "en", { ...sun, name: "Vulcan" });
+    expect(
+      await (await call("/v1/content/en/body/PLUTO")).json(),
+    ).toMatchObject({
+      fields: { name: "Pluto" },
+    });
+    const deleted = await call("/v1/content/en/body/VULCAN");
+    expect(deleted.status).toBe(404);
+    expect(await deleted.json()).toMatchObject({
       error: { code: "unknown_entry" },
     });
   });

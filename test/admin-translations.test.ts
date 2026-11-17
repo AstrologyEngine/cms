@@ -4,6 +4,7 @@ import {
   addLocale,
   addTranslation,
   admin,
+  registerKeys,
   resetDb,
   revisions,
   version,
@@ -44,7 +45,7 @@ describe("GET /v1/admin/entries/:collection/:key", () => {
     expect(await response.json()).toEqual({
       collection: "body",
       key: "SUN",
-      inCatalog: true,
+      status: "active",
       shape: "named",
       placeholders: [],
       translations: [
@@ -64,20 +65,31 @@ describe("GET /v1/admin/entries/:collection/:key", () => {
     });
   });
 
-  it("shows orphans and declared placeholders", async () => {
+  it("shows each key's status, shape and placeholders", async () => {
     await addTranslation("body", "PLUTO", "en", sun);
+    await registerKeys({
+      body: {
+        shape: "named",
+        keys: { VULCAN: { placeholders: [], status: "deleted" } },
+      },
+    });
     expect(await (await admin(path("body", "PLUTO"))).json()).toMatchObject({
-      inCatalog: false,
+      status: "unused",
+      shape: "named",
       translations: [{ locale: "en" }],
     });
-    expect(
-      await (await admin(path("ui", "app.previous"))).json(),
-    ).toMatchObject({
-      inCatalog: true,
+    expect(await (await admin(path("body", "VULCAN"))).json()).toMatchObject({
+      status: "deleted",
+      translations: [],
+    });
+    const text = await (await admin(path("ui", "app.previous"))).json();
+    expect(text).toMatchObject({
+      status: "active",
       shape: "text",
       placeholders: ["date", "place"],
       translations: [],
     });
+    expect(text).not.toHaveProperty("inCatalog");
   });
 
   it("answers 404 unknown_entry for unknown, unstored entries", async () => {
@@ -189,6 +201,42 @@ describe("PUT …/translations/:locale", () => {
     });
   });
 
+  it("marks admin writes as editor-originated, on create and update", async () => {
+    await addTranslation("body", "SUN", "en", sun, "sync");
+    await put("body", "SUN", "en", { ...sun, insight: "Edited." });
+    await addLocale("fr");
+    await addTranslation("body", "SUN", "fr", sun, "sync");
+    // The If-Match path is a separate UPDATE statement.
+    await put("body", "SUN", "fr", sun, { "if-match": '"r1"' });
+    await addLocale("de");
+    await put("body", "SUN", "de", { ...sun, name: "Sonne" });
+    const origins = await env.DB.prepare(
+      "SELECT locale, origin FROM translations WHERE key = 'SUN' ORDER BY locale",
+    ).all<{ locale: string; origin: string }>();
+    expect(origins.results).toEqual([
+      { locale: "de", origin: "editor" },
+      { locale: "en", origin: "editor" },
+      { locale: "fr", origin: "editor" },
+    ]);
+  });
+
+  it("validates text against the key's stored placeholders", async () => {
+    await registerKeys({
+      ui: {
+        shape: "text",
+        keys: { "app.count": { placeholders: ["n"], status: "active" } },
+      },
+    });
+    expect(
+      (await put("ui", "app.count", "en", { text: "{n} left" })).status,
+    ).toBe(201);
+    expect(
+      await (await put("ui", "app.count", "en", { text: "{m} left" })).json(),
+    ).toMatchObject({
+      error: { code: "placeholder_mismatch", expected: ["n"], actual: ["m"] },
+    });
+  });
+
   it("answers 422 for invalid fields and placeholder mismatches", async () => {
     const invalid = await put("body", "SUN", "en", { name: "Sun" });
     expect(invalid.status).toBe(422);
@@ -249,13 +297,57 @@ describe("DELETE …/translations/:locale", () => {
     });
   });
 
-  it("deletes orphans in any locale", async () => {
+  it("deletes other locales of unused keys but keeps their default text", async () => {
     await addTranslation("body", "PLUTO", "en", sun);
-    expect((await del("body", "PLUTO", "en")).status).toBe(204);
+    await addTranslation("body", "PLUTO", "fr", sun);
+    expect((await del("body", "PLUTO", "fr")).status).toBe(204);
+    const response = await del("body", "PLUTO", "en");
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({
+      error: { code: "conflict" },
+    });
   });
 
   it("answers 404 for missing translations", async () => {
     expect((await del("body", "MOON", "fr")).status).toBe(404);
     expect((await del("body", "SUN", "de")).status).toBe(404);
+  });
+});
+
+describe("translation writes by key status", () => {
+  beforeEach(async () => {
+    await addLocale("fr");
+    await registerKeys({
+      body: {
+        shape: "named",
+        keys: { VULCAN: { placeholders: [], status: "deleted" } },
+      },
+    });
+    await addTranslation("body", "PLUTO", "en", sun); // unused
+    await addTranslation("body", "VULCAN", "en", sun);
+    await addTranslation("body", "VULCAN", "fr", sun);
+  });
+
+  it("lets editors fix the text of unused keys", async () => {
+    const response = await put("body", "PLUTO", "en", {
+      ...sun,
+      insight: "Fixed.",
+    });
+    expect(response.status).toBe(200);
+    expect((await put("body", "PLUTO", "fr", sun)).status).toBe(201);
+  });
+
+  it("refuses writes to deleted keys until they are restored", async () => {
+    for (const response of [
+      await put("body", "VULCAN", "en", sun),
+      await put("body", "VULCAN", "fr", sun),
+      await del("body", "VULCAN", "fr"),
+    ]) {
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        error: { code: "conflict" },
+      });
+    }
+    expect(await stored("body", "VULCAN", "fr")).not.toBeNull();
   });
 });
