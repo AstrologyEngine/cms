@@ -10,7 +10,8 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { parseArgs } from "node:util";
-import { seedSql, type SeedFile } from "../src/seed";
+import { catalog } from "@astrologyengine/cms-contract/catalog";
+import { registrySql, seedSql, type SeedFile } from "../src/seed";
 
 const { values } = parseArgs({
   options: {
@@ -64,7 +65,8 @@ export const applySql = (
 
 if (import.meta.main) {
   const seed = JSON.parse(readFileSync(values.file!, "utf8")) as SeedFile;
-  applySql(seedSql(seed, new Date().toISOString()), {
+  const timestamp = new Date().toISOString();
+  applySql(registrySql(catalog, timestamp) + seedSql(seed, timestamp), {
     local: values.local!,
     env: values.env,
     persistTo: values["persist-to"],

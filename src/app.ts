@@ -1,18 +1,19 @@
 import { Hono } from "hono";
 import { requireAdmin } from "./auth";
-import type { Catalog } from "./catalog-schema";
 import { cors } from "./cors";
 import { contentVersion } from "./db";
 import type { Bindings } from "./env";
 import { apiError, isApiError, errorResponse } from "./http";
 import { adminRoutes } from "./routes/admin";
+import { keyRoutes } from "./routes/keys";
 import { publicRoutes } from "./routes/public";
+import { syncRoutes } from "./routes/sync";
 
 export type AppEnv = { Bindings: Bindings };
 
 const READ_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
-export const createApp = (catalog: Catalog) => {
+export const createApp = () => {
   const app = new Hono<AppEnv>();
 
   app.use(cors);
@@ -39,8 +40,10 @@ export const createApp = (catalog: Catalog) => {
   });
 
   app.use("/v1/admin/*", requireAdmin);
-  app.route("/", publicRoutes(catalog));
-  app.route("/", adminRoutes(catalog));
+  app.route("/", publicRoutes());
+  app.route("/", adminRoutes());
+  app.route("/", syncRoutes());
+  app.route("/", keyRoutes());
 
   app.notFound((c) =>
     errorResponse(c, apiError(404, "not_found", "Not found.")),

@@ -1,13 +1,15 @@
 import { env, exports } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
-import { catalog } from "../src/catalog";
-import { seedSql, type SeedFile } from "../src/seed";
+import { catalog } from "@astrologyengine/cms-contract/catalog";
+import { registrySql, seedSql, type SeedFile } from "../src/seed";
 import seedJson from "@astrologyengine/cms-contract/seed/en.json";
 
 // Wiring check of the deployed entry point (real catalog + seed).
 describe("worker entry", () => {
   it("serves every catalog entry in English after seeding", async () => {
-    const sql = seedSql(seedJson as SeedFile, "2026-11-10T00:00:00.000Z");
+    const stamp = "2026-11-10T00:00:00.000Z";
+    const sql =
+      registrySql(catalog, stamp) + seedSql(seedJson as SeedFile, stamp);
     await env.DB.batch(
       sql
         .split("\n")

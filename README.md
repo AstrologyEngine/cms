@@ -63,30 +63,38 @@ curl localhost:8787/v1/content/en/body/SUN
 
 Admin (`Authorization: Bearer $CMS_ADMIN_TOKEN`; optional `X-CMS-Actor: <name>`):
 
-| Method & path                                                                                 | Purpose                                                                         |
-| --------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------- |
-| `GET /v1/admin/locales` · `POST /v1/admin/locales` · `PATCH`/`DELETE /v1/admin/locales/:code` | Manage locales (new ones start disabled)                                        |
-| `GET /v1/admin/entries/:collection/:key`                                                      | All stored translations of an entry                                             |
-| `PUT`/`DELETE /v1/admin/entries/:collection/:key/translations/:locale`                        | Edit text (`If-Match: "r<n>"` or `If-None-Match: *` for concurrency)            |
-| `GET /v1/admin/coverage`                                                                      | Missing, fallback-served and placeholder-mismatched entries per locale; orphans |
-| `GET /v1/admin/revisions`                                                                     | History, newest first (`collection`, `key`, `locale`, `before`, `limit`)        |
-| `GET /v1/admin/catalog`                                                                       | The catalog                                                                     |
+| Method & path                                                                                 | Purpose                                                                             |
+| --------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| `GET /v1/admin/locales` · `POST /v1/admin/locales` · `PATCH`/`DELETE /v1/admin/locales/:code` | Manage locales (new ones start disabled)                                            |
+| `GET /v1/admin/entries/:collection/:key`                                                      | All stored translations of an entry                                                 |
+| `PUT`/`DELETE /v1/admin/entries/:collection/:key/translations/:locale`                        | Edit text (`If-Match: "r<n>"` or `If-None-Match: *` for concurrency)                |
+| `GET /v1/admin/coverage`                                                                      | Missing, fallback-served and placeholder-mismatched entries per locale; unused keys |
+| `GET /v1/admin/revisions`                                                                     | History, newest first (`collection`, `key`, `locale`, `before`, `limit`)            |
+| `GET /v1/definitions` (public)                                                                | Registered collections and key definitions                                          |
 
 Field shapes: `body`, `angle`, `sign` and `aspect` take
 `{ name, insight, keywords }`; `house` takes `{ insight, keywords }`; `ui` takes
-`{ text }`, where `text` must contain exactly the catalog's `{placeholders}`.
+`{ text }`, where `text` must contain exactly the registered key's `{placeholders}`.
 
 ## Adding copy
 
-Keys are defined in code:
+The running CMS reads collections and keys from D1. A website can define a typed
+manifest with `defineManifest` from `@astrologyengine/cms-contract/manifest`, then
+register it through `POST /v1/admin/sync`. The contract CLI provides
+`cms-contract check --manifest <file> --against <origin>` and
+`cms-contract sync --manifest <file> --origin <origin>`; sync reads
+`CMS_ADMIN_TOKEN` and uses the checkout's HEAD and full git history.
 
-1. Add the key to `packages/contract/src/catalog.ts`, declaring any placeholders.
-2. Add its English text to `packages/contract/seed/en.json`. `bun run test` fails until the two
-   match.
-3. Use it in the website with `t("your.key")`; type checks reject unknown keys.
+Sync registers new keys, preserves editor changes, and marks omitted keys unused.
+Unused keys remain served for older web builds. Admins can soft-delete unused keys
+and restore them; collection shapes and placeholder definitions cannot change.
+`GET /v1/definitions` exposes definitions without translation text.
 
-Deploying runs the seed, which inserts the new English text without touching
-existing edits. See the runbook for the order of deploy steps.
+The legacy catalog, English seed, and seed commands remain for transitional local
+and release tooling. Website manifest ownership and deploy integration are a
+separate handoff; see [the plan](docs/plans/web-owned-catalog.md). The rewritten
+initial schema requires a fresh database; it is not an upgrade migration for an
+existing CMS database.
 
 ## Develop with web
 

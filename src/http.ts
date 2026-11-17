@@ -1,5 +1,6 @@
 import type { Context } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { z } from "zod";
 
 export type ErrorCode =
   | "bad_request"
@@ -11,6 +12,7 @@ export type ErrorCode =
   | "conflict"
   | "precondition_failed"
   | "placeholder_mismatch"
+  | "definition_conflict"
   | "fallback_cycle"
   | "method_not_allowed"
   | "unsupported_media_type"
@@ -76,4 +78,17 @@ export const publicVersioned = async (
   if (matchesIfNoneMatch(c.req.header("if-none-match"), tag))
     return c.body(null, 304);
   return c.json(await body());
+};
+
+/** Parse with a zod schema, or throw 422 validation_failed with its issues. */
+export const parse = <T>(schema: z.ZodType<T>, value: unknown): T => {
+  const parsed = schema.safeParse(value);
+  if (!parsed.success)
+    throw apiError(422, "validation_failed", "Request is invalid.", {
+      issues: parsed.error.issues.map(({ path, message }) => ({
+        path: path.join("."),
+        message,
+      })),
+    });
+  return parsed.data;
 };

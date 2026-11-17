@@ -9,7 +9,8 @@ import { fileURLToPath } from "node:url";
  */
 import { readFileSync, rmSync, writeFileSync } from "node:fs";
 import { parseArgs } from "node:util";
-import { seedSql, type SeedFile } from "../src/seed";
+import { catalog } from "@astrologyengine/cms-contract/catalog";
+import { registrySql, seedSql, type SeedFile } from "../src/seed";
 
 const { values } = parseArgs({
   options: {
@@ -46,18 +47,20 @@ const literal = (value: string | null) =>
 
 rmSync(persistTo, { recursive: true, force: true });
 run(["d1", "migrations", "apply", "DB", "--local", "--persist-to", persistTo]);
+const seededAt = new Date().toISOString();
 execute(
-  seedSql(
-    JSON.parse(
-      readFileSync(
-        fileURLToPath(
-          import.meta.resolve("@astrologyengine/cms-contract/seed/en.json"),
+  registrySql(catalog, seededAt) +
+    seedSql(
+      JSON.parse(
+        readFileSync(
+          fileURLToPath(
+            import.meta.resolve("@astrologyengine/cms-contract/seed/en.json"),
+          ),
+          "utf8",
         ),
-        "utf8",
-      ),
-    ) as SeedFile,
-    new Date().toISOString(),
-  ),
+      ) as SeedFile,
+      seededAt,
+    ),
 );
 if (values.fixture) {
   const fixture = JSON.parse(readFileSync(values.fixture, "utf8")) as {

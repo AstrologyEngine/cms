@@ -5,7 +5,10 @@ import { apiError } from "./http";
 export const MAX_BODY_BYTES = 64 * 1024;
 
 /** Parse a JSON request body, enforcing content type and size. */
-export const readJson = async (c: Context<AppEnv>): Promise<unknown> => {
+export const readJson = async (
+  c: Context<AppEnv>,
+  maxBytes = MAX_BODY_BYTES,
+): Promise<unknown> => {
   const type = c.req.header("content-type")?.split(";")[0]?.trim();
   if (type !== "application/json")
     throw apiError(
@@ -14,9 +17,9 @@ export const readJson = async (c: Context<AppEnv>): Promise<unknown> => {
       "Content-Type must be application/json.",
     );
   const declared = Number(c.req.header("content-length") ?? 0);
-  if (declared > MAX_BODY_BYTES) tooLarge();
+  if (declared > maxBytes) tooLarge(maxBytes);
   const bytes = await c.req.arrayBuffer();
-  if (bytes.byteLength > MAX_BODY_BYTES) tooLarge();
+  if (bytes.byteLength > maxBytes) tooLarge(maxBytes);
   try {
     return JSON.parse(new TextDecoder().decode(bytes));
   } catch {
@@ -24,8 +27,12 @@ export const readJson = async (c: Context<AppEnv>): Promise<unknown> => {
   }
 };
 
-const tooLarge = (): never => {
-  throw apiError(413, "payload_too_large", "Body exceeds 64 KB.");
+const tooLarge = (maxBytes: number): never => {
+  throw apiError(
+    413,
+    "payload_too_large",
+    `Body exceeds ${maxBytes / 1024} KB.`,
+  );
 };
 
 /** The informational actor from X-CMS-Actor (1–64 printable chars). */
@@ -45,8 +52,8 @@ export const actorOf = (c: Context<AppEnv>) => {
 export const now = () => new Date().toISOString();
 
 export type Revision = {
-  subject: "translation" | "locale";
-  action: "create" | "update" | "delete";
+  subject: "translation" | "locale" | "collection" | "key";
+  action: "create" | "update" | "delete" | "restore";
   collection?: string | null;
   key?: string | null;
   locale?: string | null;

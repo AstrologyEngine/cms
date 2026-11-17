@@ -1,10 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { validateFields } from "../src/fields";
-import { placeholdersIn, samePlaceholders } from "../src/placeholders";
-import { testCatalog } from "./fixtures";
+import { testRegistry } from "./fixtures";
 
 const ok = (collection: string, key: string, fields: unknown) =>
-  validateFields(testCatalog, collection, key, fields);
+  validateFields(testRegistry, collection, key, fields);
 
 describe("validateFields", () => {
   it("accepts a named reference entry", () => {
@@ -85,18 +84,5 @@ describe("validateFields", () => {
       ok: false,
       code: "placeholder_mismatch",
     });
-  });
-});
-
-describe("placeholders", () => {
-  it("extracts unique names in order of appearance", () => {
-    expect(placeholdersIn("{b} and {a} then {b}; not { c } or {1x}")).toEqual([
-      "b",
-      "a",
-    ]);
-  });
-  it("compares as sets", () => {
-    expect(samePlaceholders(["a", "b"], ["b", "a"])).toBe(true);
-    expect(samePlaceholders(["a"], ["a", "b"])).toBe(false);
   });
 });

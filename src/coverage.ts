@@ -1,19 +1,21 @@
-import type { Catalog } from "./catalog-schema";
 import { resolveEntry } from "./content";
 import type { Locale, TranslationRecord } from "./db";
-import { isCatalogEntry } from "./fields";
 import { effectiveChain } from "./locales";
 import { placeholdersIn, samePlaceholders } from "./placeholders";
+import { activeCollections, activeKey, type Registry } from "./registry";
 
-/** Coverage of the catalog per locale, plus orphaned translations. */
+/**
+ * Coverage of active keys per locale (what translators work on), plus the
+ * unused keys (no longer in the website's manifest, still served).
+ */
 export const coverageReport = (
-  catalog: Catalog,
+  registry: Registry,
   locales: Locale[],
   rows: TranslationRecord[],
 ) => {
-  const ids = Object.entries(catalog)
-    .flatMap(([collection, definition]) =>
-      Object.keys(definition.keys).map((key) => `${collection}:${key}`),
+  const ids = activeCollections(registry)
+    .flatMap(([collection, , keys]) =>
+      keys.map((key) => `${collection}:${key}`),
     )
     .sort();
   const byEntry = new Map<string, TranslationRecord[]>();
@@ -22,10 +24,10 @@ export const coverageReport = (
     byEntry.set(id, [...(byEntry.get(id) ?? []), row]);
   }
   const mismatched = (row: TranslationRecord) => {
-    const definition = catalog[row.collection];
-    if (definition?.shape !== "text") return false;
+    if (registry[row.collection]?.shape !== "text") return false;
+    const definition = activeKey(registry, row.collection, row.key)!;
     const { text } = JSON.parse(row.fields) as { text: string };
-    return !samePlaceholders(definition.keys[row.key]!, placeholdersIn(text));
+    return !samePlaceholders(definition.placeholders, placeholdersIn(text));
   };
 
   return {
@@ -57,13 +59,12 @@ export const coverageReport = (
         complete: !missing.length && !placeholderMismatches.length,
       };
     }),
-    orphans: rows
-      .filter((row) => !isCatalogEntry(catalog, row.collection, row.key))
-      .map(({ collection, key, locale }) => ({ collection, key, locale }))
-      .sort((a, b) =>
-        `${a.collection}:${a.key}:${a.locale}`.localeCompare(
-          `${b.collection}:${b.key}:${b.locale}`,
-        ),
-      ),
+    unused: Object.entries(registry)
+      .flatMap(([collection, { keys }]) =>
+        Object.keys(keys)
+          .filter((key) => keys[key]!.status === "unused")
+          .map((key) => `${collection}:${key}`),
+      )
+      .sort(),
   };
 };

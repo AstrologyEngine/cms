@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
+import type { Definitions } from "@astrologyengine/cms-contract/definitions";
 import type { AppEnv } from "../app";
-import type { Catalog } from "../catalog-schema";
 import { buildEntries, resolveEntry } from "../content";
 import {
   contentVersion,
@@ -8,9 +8,9 @@ import {
   listLocales,
   translationsIn,
 } from "../db";
-import { isCatalogEntry } from "../fields";
 import { apiError, publicVersioned } from "../http";
 import { canonicalLocale, effectiveChain } from "../locales";
+import { loadRegistry, servedKey } from "../registry";
 
 /** The enabled locale named in the path, with its chain; 404 otherwise. */
 const availableLocale = async (c: Context<AppEnv>, requested: string) => {
@@ -33,7 +33,7 @@ const availableLocale = async (c: Context<AppEnv>, requested: string) => {
   };
 };
 
-export const publicRoutes = (catalog: Catalog) => {
+export const publicRoutes = () => {
   const routes = new Hono<AppEnv>();
 
   routes.get("/v1/locales", async (c) =>
@@ -53,17 +53,37 @@ export const publicRoutes = (catalog: Catalog) => {
     }),
   );
 
+  // Every collection and key (deleted ones too, so web's PR checks can spot
+  // retired names), without text. Key names are public through bundles anyway.
+  routes.get("/v1/definitions", async (c) => {
+    const version = await contentVersion(c.env.DB);
+    return publicVersioned(c, version, async () => {
+      const [registry, locales] = await Promise.all([
+        loadRegistry(c.env.DB),
+        listLocales(c.env.DB),
+      ]);
+      return {
+        default: locales.find((locale) => locale.isDefault)!.code,
+        version,
+        collections: registry,
+      } satisfies Definitions;
+    });
+  });
+
   routes.get("/v1/content/:locale", async (c) => {
     const locale = await availableLocale(c, c.req.param("locale"));
     const version = await contentVersion(c.env.DB);
     return publicVersioned(c, version, async () => {
-      const rows = await translationsIn(c.env.DB, locale.chain);
+      const [registry, rows] = await Promise.all([
+        loadRegistry(c.env.DB),
+        translationsIn(c.env.DB, locale.chain),
+      ]);
       return {
         locale: locale.code,
         default: locale.defaultCode,
         chain: locale.chain,
         version,
-        ...buildEntries(catalog, locale.chain, rows),
+        ...buildEntries(registry, locale.chain, rows),
       };
     });
   });
@@ -71,11 +91,11 @@ export const publicRoutes = (catalog: Catalog) => {
   routes.get("/v1/content/:locale/:collection/:key", async (c) => {
     const { collection, key } = c.req.param();
     const locale = await availableLocale(c, c.req.param("locale"));
-    if (!isCatalogEntry(catalog, collection, key))
+    if (!servedKey(await loadRegistry(c.env.DB), collection, key))
       throw apiError(
         404,
         "unknown_entry",
-        `'${collection}:${key}' is not in the catalog.`,
+        `'${collection}:${key}' is not registered.`,
       );
     return publicVersioned(c, await contentVersion(c.env.DB), async () => {
       const rows = await entryTranslations(

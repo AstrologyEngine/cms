@@ -1,5 +1,5 @@
-import type { Catalog } from "./catalog-schema";
 import type { TranslationRecord } from "./db";
+import { servedCollections, type Registry } from "./registry";
 
 type Fields = Record<string, unknown>;
 
@@ -15,9 +15,9 @@ export const resolveEntry = (
   return null;
 };
 
-/** Bundle of all catalog entries resolved along `chain`. */
+/** Bundle of all served (active and unused) entries resolved along `chain`. */
 export const buildEntries = (
-  catalog: Catalog,
+  registry: Registry,
   chain: string[],
   rows: TranslationRecord[],
 ) => {
@@ -28,9 +28,9 @@ export const buildEntries = (
   }
   const entries: Record<string, Record<string, Fields>> = {};
   const fallbacks: Record<string, string> = {};
-  for (const [collection, definition] of Object.entries(catalog)) {
+  for (const [collection, , keys] of servedCollections(registry)) {
     entries[collection] = {};
-    for (const key of Object.keys(definition.keys)) {
+    for (const key of keys) {
       const id = `${collection}:${key}`;
       const resolved = resolveEntry(chain, byEntry.get(id) ?? []);
       if (!resolved) continue;

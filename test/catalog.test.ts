@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
-import { catalog } from "../src/catalog";
+import { catalog } from "@astrologyengine/cms-contract/catalog";
 import { validateFields } from "../src/fields";
+import { registryFrom } from "./fixtures";
 import type { SeedFile } from "../src/seed";
 import seedJson from "@astrologyengine/cms-contract/seed/en.json";
 
@@ -48,7 +49,12 @@ describe("seed/en.json", () => {
   it("passes field and placeholder validation", () => {
     for (const [collection, entries] of Object.entries(seed.entries))
       for (const [key, fields] of Object.entries(entries)) {
-        const result = validateFields(catalog, collection, key, fields);
+        const result = validateFields(
+          registryFrom(catalog),
+          collection,
+          key,
+          fields,
+        );
         expect(result, `${collection}:${key}`).toMatchObject({ ok: true });
       }
   });

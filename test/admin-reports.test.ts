@@ -1,14 +1,18 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { addLocale, addTranslation, admin, resetDb } from "./helpers";
-import { sun, testCatalog } from "./fixtures";
+import {
+  addLocale,
+  addTranslation,
+  admin,
+  registerKeys,
+  resetDb,
+} from "./helpers";
+import { sun } from "./fixtures";
 
 beforeEach(resetDb);
 
 describe("GET /v1/admin/catalog", () => {
-  it("returns the catalog", async () => {
-    expect(await (await admin("/v1/admin/catalog")).json()).toEqual({
-      collections: testCatalog,
-    });
+  it("is gone; GET /v1/definitions replaces it", async () => {
+    expect((await admin("/v1/admin/catalog")).status).toBe(404);
   });
 });
 
@@ -31,16 +35,24 @@ describe("GET /v1/admin/coverage", () => {
     await addTranslation("body", "SUN", "es-419", sun);
     await addTranslation("body", "MOON", "es-ES", sun);
     await addTranslation("ui", "app.previous", "es-ES", { text: "{date}" });
+    // Unused (registered by addTranslation) and deleted keys aren't counted.
     await addTranslation("body", "PLUTO", "es-ES", sun);
+    await registerKeys({
+      body: {
+        shape: "named",
+        keys: { VULCAN: { placeholders: [], status: "deleted" } },
+      },
+    });
+    await addTranslation("body", "VULCAN", "en", sun);
   });
 
-  it("reports per-locale completeness, fallbacks, mismatches and orphans", async () => {
+  it("reports per-locale completeness, fallbacks, mismatches and unused keys", async () => {
     const response = await admin("/v1/admin/coverage");
     expect(response.status).toBe(200);
     const report = await response.json<{
       total: number;
       locales: Record<string, unknown>[];
-      orphans: unknown[];
+      unused: string[];
     }>();
     expect(report.total).toBe(7);
     expect(report.locales).toEqual([
@@ -102,9 +114,8 @@ describe("GET /v1/admin/coverage", () => {
         complete: false,
       },
     ]);
-    expect(report.orphans).toEqual([
-      { collection: "body", key: "PLUTO", locale: "es-ES" },
-    ]);
+    expect(report.unused).toEqual(["body:PLUTO"]);
+    expect(report).not.toHaveProperty("orphans");
   });
 });
 

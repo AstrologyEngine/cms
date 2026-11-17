@@ -1,0 +1,8 @@
+{
+  // The CLI runs on Node; the rest of the contract stays runtime-neutral
+  // (tsconfig.json has no Node types and excludes src/cli).
+  "extends": "./tsconfig.json",
+  "compilerOptions": { "types": ["node"] },
+  "include": ["src/cli"],
+  "exclude": []
+}
