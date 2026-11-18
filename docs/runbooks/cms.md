@@ -109,7 +109,7 @@ Keep `CMS_TOKEN` in your shell only for the session
 Cloudflare dashboard → `astrologyengine.dev` → Security → WAF → Rate limiting
 rules → Create:
 
-- **If incoming requests match:** `(http.host in {"cms-staging.astrologyengine.dev" "cms-alpha.astrologyengine.dev"} and starts_with(http.request.uri.path, "/v1/admin/"))`
+- **If incoming requests match:** `starts_with(http.request.uri.path, "/v1/admin/")`. The zone is on Cloudflare Free, which supports path matching for rate limits. This rule covers both CMS hostnames and applies to the same path across the zone.
 - **With the same characteristics:** IP
 - **When rate exceeds:** 30 requests per 10 seconds (the lowest period available on all plans)
 - **Then:** Block for 10 seconds (longer durations need a paid plan)
@@ -305,12 +305,12 @@ The web Playwright suite starts its own CMS instances through `dev:e2e` (ports
 See the root README for the release package and workflow controls. CMS owns
 migration → deploy → seed → API/coverage verification. Web builds its outage
 snapshot from the matching environment's `CMS_SNAPSHOT_ORIGIN` before deploy.
-Web previews use staging. The `CMS_DEPLOY_ENABLED` repository variable defaults
-to disabled in **both** repositories until issue #39 is complete; web deployment
-and preview creation are also gated, while closed-preview cleanup still runs.
+Web previews use staging. The `CMS_DEPLOY_ENABLED` variable controls CMS
+deployment separately from web deployment and preview creation. Closed-preview
+cleanup still runs while the web gate is disabled.
 
 Provision staging, verify it, then provision and verify alpha. Configure each
 repository's credentials and release App access. Enable CMS automation first,
-verify CMS deployment, then enable web automation. Do not delete/recreate any
-existing Worker or database as part of extraction: names, routes and bindings
-are preserved. Worker code rollback does not roll back D1 data.
+verify successful CMS deployments for staging and alpha, then enable web
+automation. The new CMS schema is already in use in both environments. Use
+additive migrations for changes to those databases. Worker code rollback does not roll back D1 data.
